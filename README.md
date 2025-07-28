@@ -3,24 +3,70 @@ Elix is a voice-activated personal assistant in Python that opens websites, play
 import speech_recognition as sr
 import webbrowser
 import pyttsx3
+import wikipedia
+import pyjokes
+import datetime
+import threading
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-import time
+import tkinter as tk
 
-# Initialize recognizer and TTS engine
+# === Core Setup ===
 recogniser = sr.Recognizer()
 engine = pyttsx3.init()
 
-# Speak function
 def speak(text):
+    output_text.set(f"Elix: {text}")
     engine.say(text)
     engine.runAndWait()
 
-# Handles commands
+# === GUI ===
+window = tk.Tk()
+window.title("Elix - Personal Voice Assistant")
+window.geometry("400x200")
+window.configure(bg="#121212")
+
+status_text = tk.StringVar()
+output_text = tk.StringVar()
+status_text.set("Status: Waiting for wake word...")
+output_text.set("Elix is ready to assist you!")
+
+status_label = tk.Label(window, textvariable=status_text, font=("Arial", 12), fg="white", bg="#121212")
+status_label.pack(pady=10)
+output_label = tk.Label(window, textvariable=output_text, font=("Arial", 11), fg="#00ffcc", bg="#121212", wraplength=380, justify="center")
+output_label.pack(pady=5)
+
+# === Modular Command Handler ===
 def processCommand(c):
     c = c.lower()
 
+    if "time" in c:
+        now = datetime.datetime.now().strftime("%I:%M %p")
+        speak(f"The current time is {now}")
+    elif "joke" in c:
+        joke = pyjokes.get_joke()
+        speak(joke)
+    elif "wikipedia" in c:
+        topic = c.replace("wikipedia", "").strip()
+        try:
+            summary = wikipedia.summary(topic, sentences=2)
+            speak(summary)
+        except:
+            speak("Sorry, I couldn't find that on Wikipedia.")
+    elif "play" in c:
+        song = c.replace("play", "").strip()
+        speak(f"Playing {song} on YouTube")
+        playOnYouTube(song)
+    elif "open" in c:
+        openWebsite(c)
+    elif "exit" in c or "bye" in c:
+        speak("Goodbye!")
+        window.quit()
+    else:
+        speak("I'm not sure how to respond to that.")
+
+def openWebsite(c):
     sites = {
         "google": "https://www.google.com",
         "youtube": "https://www.youtube.com",
@@ -40,24 +86,13 @@ def processCommand(c):
     }
 
     for key in sites:
-        if f"open {key}" in c or (key == "twitter" and "open x" in c):
+        if key in c:
             speak(f"Opening {key.capitalize()}")
             webbrowser.open(sites[key])
             return
 
-    if "play" in c:
-        song = c.replace("play", "").strip()
-        speak(f"Playing {song} on YouTube")
-        playOnYouTube(song)
-        return
+    speak("I don't recognize that website.")
 
-    if "exit" in c or "bye" in c:
-        speak("Goodbye!")
-        exit()
-
-    speak("Sorry, I don't understand that command.")
-
-# Play song using Selenium
 def playOnYouTube(song):
     query = "+".join(song.split())
     search_url = f"https://www.youtube.com/results?search_query={query}"
@@ -71,6 +106,7 @@ def playOnYouTube(song):
     driver.get(search_url)
 
     try:
+        import time
         time.sleep(2)
         first_video = driver.find_element(By.ID, "video-title")
         first_video.click()
@@ -78,23 +114,20 @@ def playOnYouTube(song):
         speak("Sorry, I couldn't play the video.")
         print("Error:", e)
 
-# Main Program
-if __name__ == "__main__":
-    speak("Initializing Elix...")
-
+# === Voice Listening Thread ===
+def listen_loop():
     while True:
         try:
             with sr.Microphone() as source:
-                print("Listening for wake word...")
-                audio = recogniser.listen(source, timeout=3, phrase_time_limit=3)
+                status_text.set("Status: Listening for wake word...")
+                audio = recogniser.listen(source, timeout=5, phrase_time_limit=3)
                 word = recogniser.recognize_google(audio).lower()
 
-                if word == "elix":
+                if "elix" in word:
                     speak("Yes?")
-                    print("Elix activated...")
-
+                    status_text.set("Status: Awaiting command...")
                     with sr.Microphone() as source:
-                        audio = recogniser.listen(source, timeout=4, phrase_time_limit=5)
+                        audio = recogniser.listen(source, timeout=5, phrase_time_limit=6)
                         try:
                             command = recogniser.recognize_google(audio)
                             print("Command:", command)
@@ -102,8 +135,16 @@ if __name__ == "__main__":
                         except sr.UnknownValueError:
                             speak("Sorry, I didn't catch that.")
         except sr.UnknownValueError:
-            pass
+            continue
         except sr.WaitTimeoutError:
-            pass
+            continue
         except Exception as e:
-            print("Error:", e)
+            print("Listening Error:", e)
+
+# Start background thread
+listener_thread = threading.Thread(target=listen_loop)
+listener_thread.daemon = True
+listener_thread.start()
+
+# Run the GUI
+window.mainloop()
